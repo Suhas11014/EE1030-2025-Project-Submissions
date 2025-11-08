@@ -1,0 +1,388 @@
+\documentclass[17pt, a4paper]{extarticle}
+
+% --- Packages ---
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+% Use extsizes package to enable 17pt font
+\usepackage{extsizes} 
+% Using default margins
+\usepackage{amsmath, amssymb} % For mathematical symbols and environments
+\usepackage{graphicx} % For including images (results)
+\usepackage{float} % For better control over figure placement
+\usepackage{hyperref} % For clickable links and PDF metadata
+\usepackage{caption} % For custom captions
+
+% Custom commands for vectors and matrices
+\newcommand{\mvec}[1]{\mathbf{#1}} % Vector (lowercase bold)
+\newcommand{\mat}[1]{\mathbf{#1}} % Matrix (uppercase bold)
+
+% Document information
+\title{SVD for Image Compression (Using Power iteration)}
+\author{
+    \textbf{Gooty Suhas} \\
+}
+\date{\today}
+
+% --- The document starts here ---
+\begin{document}
+
+\maketitle
+
+\noindent
+This report details the implementation of a low-rank approximation technique using the \textbf{Singular Value Decomposition (SVD)} to achieve grayscale image compression. The core task involves decomposing a matrix $\mat{A}$ (representing the image) into the product of three matrices: $\mat{U}\mat{\Sigma}\mat{V}^\top$. By retaining only the largest $k$ singular values and their corresponding singular vectors, an approximated image matrix $\mat{A}_k$ is reconstructed, dramatically reducing storage requirements. The SVD was computed using a combination of the \textbf{Power Iteration method} and matrix deflation, an approach particularly suitable for finding the dominant components. The C programming language and the \texttt{stb\_image} library were utilized for implementation, allowing for direct manipulation of image data. Results demonstrate a strong trade-off between the compression rank $k$ and the reconstruction error, quantified by the Frobenius norm $||\mat{A} - \mat{A}_k||_F$.
+
+\vspace{1cm}
+\clearpage
+
+
+
+
+\vspace{1cm}
+\noindent
+\textbf{Introduction}
+
+This project focuses on a powerful method rooted in linear algebra: \textbf{low-rank approximation} using the Singular Value Decomposition (SVD). This mathematical framework provides an optimal way to separate the essential information (signal) from the redundant data (noise).
+
+The objective is to develop a functional C program that takes a grayscale image and a target compression rank $k$ as input. The program performs the SVD on the image's pixel data matrix $\mat{A}$ and reconstructs a compressed version $\mat{A}_k$ using only the top $k$ singular value-vector triplets. The resulting image is saved to a new file, demonstrating a direct application of numerical linear algebra to data compression.
+
+\vspace{1cm}
+\noindent
+\textbf{Theoretical Background: Singular Value Decomposition}
+
+The SVD is a powerful factorization tool applicable to any $m \times n$ real or complex matrix. For a real-valued image matrix $\mat{A} \in \mathbb{R}^{m \times n}$, its SVD is defined as:
+
+\begin{equation}
+\label{eq:svd}
+\mat{A} = \mat{U} \mat{\Sigma} \mat{V}^\top
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $\mat{U} \in \mathbb{R}^{m \times m}$ is an \textbf{orthogonal matrix} whose columns are the left singular vectors, $\mvec{u}_i$.
+    \item $\mat{V} \in \mathbb{R}^{n \times n}$ is an \textbf{orthogonal matrix} whose columns are the right singular vectors, $\mvec{v}_i$.
+    \item $\mat{\Sigma} \in \mathbb{R}^{m \times n}$ is a \textbf{diagonal matrix} containing the singular values, $\sigma_1 \ge \sigma_2 \ge \dots \ge \sigma_r \ge 0$, on its main diagonal, where $r$ is the rank of $\mat{A}$.
+\end{itemize}
+
+\vspace{1cm}
+\noindent
+\textbf{Summary of Strang’s Video}
+
+Professor Gilbert Strang's lecture provides a clear and geometric interpretation of the Singular Value Decomposition (SVD). He emphasizes that SVD is the most fundamental matrix factorization, applicable to any matrix $\mat{A}$, regardless of whether it is square, symmetric, or invertible.
+
+\vspace{0.5cm}
+\noindent
+\textbf{Geometric Interpretation}
+
+Professor Strang presents SVD as a transformation: the matrix $\mat{A}$ transforms an orthonormal basis in the row space (the $\mvec{v}_i$ vectors, columns of $\mat{V}$) into an orthonormal basis in the column space (the $\mvec{u}_i$ vectors, columns of $\mat{U}$). The transformation simply stretches or shrinks these basis vectors by the singular values, $\sigma_i$. Specifically, $\mat{A}\mvec{v}_i = \sigma_i \mvec{u}_i$. This is a crucial concept for image compression, as the singular values $\sigma_i$ quantify the "importance" or magnitude of the information carried by each basis pair ($\mvec{u}_i$, $\mvec{v}_i$).
+
+\vspace{0.5cm}
+\noindent
+\textbf{Low-Rank Approximation and Image Compression}
+
+The value of SVD in applications like image compression stems from the fact that the singular values are ordered ($\sigma_1 \ge \sigma_2 \ge \dots$). If most singular values are small, we can set them to zero, retaining only the largest $k$ terms. This process, which yields the low-rank approximation $\mat{A}_k$, results in minimal loss of information (low error) while achieving maximum data reduction.
+
+\vspace{0.5cm}
+\noindent
+\textbf{Illustrative SVD Example}
+
+Consider a simple rank-one matrix $\mat{A}$:
+
+\begin{equation}
+\mat{A} = \begin{pmatrix} 2 & 2 \\ 1 & 1 \end{pmatrix}
+\end{equation}
+
+The SVD factors this matrix into:
+$$
+\mat{A} = \mat{U} \mat{\Sigma} \mat{V}^\top = \begin{pmatrix} 2/\sqrt{5} & -1/\sqrt{5} \\ 1/\sqrt{5} & 2/\sqrt{5} \end{pmatrix}
+\begin{pmatrix} \sqrt{10} & 0 \\ 0 & 0 \end{pmatrix}
+\begin{pmatrix} 1/\sqrt{2} & 1/\sqrt{2} \\ -1/\sqrt{2} & 1/\sqrt{2} \end{pmatrix}
+$$
+
+The singular values are $\sigma_1 = \sqrt{10} \approx 3.16$ and $\sigma_2 = 0$. Since $\sigma_2$ is zero, the rank is $k=1$. The entire matrix is perfectly represented by the first rank-one component:
+$$
+\mat{A}_1 = \sigma_1 \mvec{u}_1 \mvec{v}_1^\top = \sqrt{10} \begin{pmatrix} 2/\sqrt{5} \\ 1/\sqrt{5} \end{pmatrix} \begin{pmatrix} 1/\sqrt{2} & 1/\sqrt{2} \end{pmatrix} = \begin{pmatrix} 2 & 2 \\ 1 & 1 \end{pmatrix}
+$$
+For image compression, an image matrix $\mat{A}$ will have many small, non-zero singular values. We truncate the sum after $k$ terms (e.g., $k=100$) to achieve compression while accepting a small approximation error
+
+
+\vspace{1cm}
+\noindent
+\textbf{Computational Method: Power Iteration and Deflation}
+
+While standard libraries use complex, highly optimized SVD algorithms, this project focuses on a core numerical method suitable for finding the dominant components: the \textbf{Power Iteration method} combined with matrix deflation. This approach leverages the connection between SVD and the Eigenvalue Decomposition (EVD) of the matrix $\mat{C} = \mat{A}^\top \mat{A}$.
+
+\vspace{0.5cm}
+\noindent
+\textbf{The Relationship between SVD and EVD}
+
+The right singular vectors ($\mvec{v}_i$) of $\mat{A}$ are the eigenvectors of the symmetric matrix $\mat{C} = \mat{A}^\top \mat{A}$, and the singular values ($\sigma_i$) of $\mat{A}$ are the square roots of the eigenvalues ($\lambda_i$) of $\mat{C}$:
+
+\begin{align}
+\mat{A}^\top \mat{A} \mvec{v}_i &= \lambda_i \mvec{v}_i \\
+\sigma_i &= \sqrt{\lambda_i}
+\end{align}
+
+Since $\mat{C}$ is a symmetric matrix, its eigenvectors are orthogonal, making the EVD an ideal target for Power Iteration.
+
+\vspace{0.5cm}
+\noindent
+\textbf{Step 1: The Power Iteration Method}
+
+The Power Iteration algorithm is used to find the largest eigenvalue $\lambda_1$ and its corresponding eigenvector $\mvec{v}_1$ of $\mat{C}$.
+
+1.  \textbf{Initialization:} Start with a random unit vector $\mvec{v}^{(0)}$ (or a uniform vector for robustness).
+2.  \textbf{Iteration:} Repeat the following steps until convergence:
+\begin{enumerate}
+
+        \item Compute the next vector: $\mvec{w}^{(t+1)} = \mat{C} \mvec{v}^{(t)}$
+        \item Normalize the vector: $\mvec{v}^{(t+1)} = \frac{\mvec{w}^{(t+1)}}{||\mvec{w}^{(t+1)}||}$
+\end{enumerate}
+
+
+3.  \textbf{Convergence:} The vector $\mvec{v}^{(t)}$ converges to the dominant eigenvector $\mvec{v}_1$. The corresponding eigenvalue $\lambda_1$ is computed using the Rayleigh quotient: $\lambda_1 = \frac{\mvec{v}_1^\top (\mat{C} \mvec{v}_1)}{||\mvec{v}_1||^2}$. In the case of normalized unit vectors, this simplifies to $\lambda_1 = \mvec{v}_1^\top (\mat{C} \mvec{v}_1)$.
+
+This process yields the first right singular vector $\mvec{v}_1$ and its associated squared singular value $\sigma_1^2 = \lambda_1$.
+
+\vspace{1cm}
+\noindent
+\textbf{Computational Method: Power Iteration and Deflation}
+
+While standard libraries use complex, highly optimized SVD algorithms, this project focuses on a core numerical method suitable for finding the dominant components: the \textbf{Power Iteration method} combined with matrix deflation. This approach leverages the connection between SVD and the Eigenvalue Decomposition (EVD) of the matrix $\mat{C} = \mat{A}^\top \mat{A}$.
+
+\vspace{0.5cm}
+\noindent
+\textbf{The Relationship between SVD and EVD}
+
+The right singular vectors ($\mvec{v}_i$) of $\mat{A}$ are the eigenvectors of the symmetric matrix $\mat{C} = \mat{A}^\top \mat{A}$, and the singular values ($\sigma_i$) of $\mat{A}$ are the square roots of the eigenvalues ($\lambda_i$) of $\mat{C}$:
+
+\begin{align}
+\mat{A}^\top \mat{A} \mvec{v}_i &= \lambda_i \mvec{v}_i \\
+\sigma_i &= \sqrt{\lambda_i}
+\end{align}
+
+Since $\mat{C}$ is a symmetric matrix, its eigenvectors are orthogonal, making the EVD an ideal target for Power Iteration.
+
+\vspace{0.5cm}
+\noindent
+\textbf{Step 1: The Power Iteration Method}
+
+The Power Iteration algorithm is used to find the largest eigenvalue $\lambda_1$ and its corresponding eigenvector $\mvec{v}_1$ of $\mat{C}$.
+
+1.  \textbf{Initialization:} Start with a random unit vector $\mvec{v}^{(0)}$ (or a uniform vector for robustness).
+
+2.  \textbf{Iteration:} Repeat the following steps until convergence:
+    \begin{enumerate}
+        \item Compute the next vector: $\mvec{w}^{(t+1)} = \mat{C} \mvec{v}^{(t)}$
+        \item Normalize the vector: $\mvec{v}^{(t+1)} = \frac{\mvec{w}^{(t+1)}}{||\mvec{w}^{(t+1)}||}$
+    \end{enumerate}
+3.  \textbf{Convergence:} The vector $\mvec{v}^{(t)}$ converges to the dominant eigenvector $\mvec{v}_1$. The corresponding eigenvalue $\lambda_1$ is computed using the Rayleigh quotient: $\lambda_1 = \frac{\mvec{v}_1^\top (\mat{C} \mvec{v}_1)}{||\mvec{v}_1||^2}$. In the case of normalized unit vectors, this simplifies to $\lambda_1 = \mvec{v}_1^\top (\mat{C} \mvec{v}_1)$.
+
+This process yields the first right singular vector $\mvec{v}_1$ and its associated squared singular value $\sigma_1^2 = \lambda_1$.
+
+\vspace{1cm}
+\noindent
+\textbf{Step 2: Matrix Deflation}
+
+To find the next largest component ($\sigma_2, \mvec{v}_2$), we employ the method of matrix deflation. Once the dominant eigenvalue $\lambda_1$ and its eigenvector $\mvec{v}_1$ are found, their contribution is removed from the matrix $\mat{C}$:
+
+\begin{equation}
+\mat{C}_1 = \mat{C} - \lambda_1 \mvec{v}_1 \mvec{v}_1^\top
+\end{equation}
+
+The new matrix $\mat{C}_1$ has the exact same eigenvectors as $\mat{C}$, but the eigenvalue $\lambda_1$ has been replaced by zero. The Power Iteration is then applied to $\mat{C}_1$ to find the next largest component, $\lambda_2$ and $\mvec{v}_2$. This process is repeated $k$ times to extract the top $k$ components ($\lambda_1, \dots, \lambda_k$ and $\mvec{v}_1, \dots, \mvec{v}_k$).
+
+\vspace{1cm}
+\noindent
+\textbf{Step 3: Computing the Left Singular Vectors ($\mat{U}$)}
+
+After determining the $k$ largest singular values $\sigma_i = \sqrt{\lambda_i}$ and the corresponding right singular vectors $\mvec{v}_i$, the left singular vectors $\mvec{u}_i$ are calculated directly from the original matrix $\mat{A}$:
+
+\begin{equation}
+\mvec{u}_i = \frac{1}{\sigma_i} (\mat{A} \mvec{v}_i), \quad \text{for } i = 1, \dots, k
+\end{equation}
+This calculation is robust as long as $\sigma_i > 0$. If $\sigma_i$ is close to zero, the corresponding $\mvec{u}_i$ is treated as zero, as it carries no information.
+
+\vspace{1cm}
+\noindent
+\textbf{Step 4: Low-Rank Reconstruction}
+
+The compressed image matrix $\mat{A}_k$ is reconstructed using the outer product form of the SVD, summing only the top $k$ rank-one components:
+
+\begin{equation}
+\mat{A}_k = \sum_{i=1}^{k} \sigma_i \mvec{u}_i \mvec{v}_i^\top
+\end{equation}
+
+This matrix $\mat{A}_k$ is the best possible rank-$k$ approximation to the original image matrix $\mat{A}$ in the least-squares sense (Eckart–Young theorem). The numerical values in $\mat{A}_k$ are then scaled and converted to pixel values (0–255) for image output.
+
+\vspace{1cm}
+\noindent
+\textbf{Implementation and Results}
+
+The core C program successfully implemented the Power Iteration and deflation technique to extract the top $k$ singular value components. The program accepts an input image, target rank $k$, and outputs the reconstructed image.
+
+\vspace{0.5cm}
+\noindent
+\textbf{Image Compression Visuals}
+
+Visual confirmation of the low-rank approximation is critical. The following figure compares the original image against images reconstructed using various compression ranks $k$. As $k$ increases, the visual quality improves at the cost of higher storage size.
+\newpage
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.45\linewidth]{Figs/einstein.jpg} 
+    \hfill
+    \includegraphics[width=0.45\linewidth]{Figs/Einsteincomp/comp_e_20.png}
+    \caption{Comparison of the Original Grayscale Image(einstein.png) (Left) with a Reconstructed Image at low rank $k=20$ (Right).}
+    \label{fig:comparison(einstein)}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.45\linewidth]{Figs/Einsteincomp/comp_e_100.png}
+\caption{Reconstructed Image at a higher rank $k=100$}
+\end{figure}
+
+
+
+\newpage
+\vspace{1cm}
+\noindent
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.45\linewidth]{Figs/globe.jpg} 
+    \hfill
+    \includegraphics[width=0.45\linewidth]{Figs/Globecomp/comp_g_20.png}
+    \caption{Comparison of the Original Grayscale Image(globe.jpg) (Left) with a Reconstructed Image at low rank $k=20$ (Right).}
+    \label{fig:comparison(globe)}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.45\linewidth]{Figs/Globecomp/comp_g_100.png}
+\caption{Reconstructed Image at a higher rank $k=100$}
+\end{figure}
+\newpage
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.45\linewidth]{Figs/greyscale.png} 
+    \hfill
+    \includegraphics[width=0.45\linewidth]{Figs/Greyscalecomp/comp_gr_20.png}
+    \caption{Comparison of the Original Grayscale Image(greyscale.png) (Left) with a Reconstructed Image at low rank $k=20$ (Right).}
+    \label{fig:comparison(greyscale)}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.45\linewidth]{Figs/Greyscalecomp/comp_gr_100.png}
+\caption{Reconstructed Image at a higher rank $k=100$}
+\end{figure}
+
+\vspace{1cm}
+\noindent
+
+
+
+
+
+
+\newpage
+\textbf{Quantitative Error Analysis}
+
+The quality of the compressed image $\mat{A}_k$ is quantitatively measured by the Frobenius norm of the error matrix, $||\mat{A} - \mat{A}_k||_F$. This value represents the total difference between all pixels of the original and reconstructed images.
+
+$$
+||\mat{A} - \mat{A}_k||_F = \sqrt{\sum_{i=1}^{m} \sum_{j=1}^{n} (A_{ij} - (A_k)_{ij})^2}
+$$
+
+The error results for a test image at various ranks are summarized in the table below. 
+
+\vspace{1cm}
+\noindent
+\textbf{Quantitative Error Analysis}
+
+The quality of the compressed image $\mat{A}_k$ is quantitatively measured by the Frobenius norm of the error matrix, $||\mat{A} - \mat{A}_k||_F$. This value represents the total difference between all pixels of the original and reconstructed images. The results demonstrate the exponential decay of the error as more singular values are included in the approximation.
+
+\vspace{0.5cm}
+\noindent
+\textbf{Frobenius Error Data}
+
+The error results for the three test images at various ranks are summarized in the tables below. Note that the error calculation is based on the difference between the original matrix $\mat{A}$ and the reconstructed matrix $\mat{A}_k$.
+
+\begin{table}[h]
+    \centering
+    \input{Tables/einstein.tex}
+        \caption*{Frobenius Error for Einstein Image (comp\_e)}
+
+    \label{tab:error_einstein}
+\end{table}
+
+
+\vspace{10cm}
+
+\begin{table}[h]
+    \centering
+    \input{Tables/globe.tex}
+            \caption*{Frobenius Error for Globe Image (comp\_g)}
+            \label{tab:error_globe}
+\end{table}
+
+\newpage
+
+\begin{table}[h]
+    \centering
+\input{Tables/greyscale.tex}
+        \caption*{Frobenius Error for Greyscale Image (comp\_gr)}
+    \label{tab:error_greyscale}
+\end{table}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\noindent
+\textbf{Conclusion}
+
+This project successfully implemented a low-rank image compression utility using the Singular Value Decomposition (SVD), computed through the Power Iteration method combined with matrix deflation. The results, both visual and quantitative, affirm that SVD provides an optimal data compression strategy. By selecting a small rank $k$, significant data reduction is achieved while maintaining a reasonably low reconstruction error, directly demonstrating the power of numerical linear algebra in practical engineering applications.
+
+\vspace{2cm}
+\end{document}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
